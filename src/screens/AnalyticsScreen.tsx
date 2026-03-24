@@ -3,17 +3,19 @@ import { View, Text, StyleSheet, ScrollView, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppStore } from '../store/useAppStore';
 import { VictoryPie, VictoryChart, VictoryLine, VictoryTheme, VictoryAxis } from 'victory-native';
-import { parseISO, format, subMonths, isSameMonth } from 'date-fns';
-import { getColors } from '../theme/colors';
+import { parseISO, format, subMonths, isSameMonth, subDays, isSameDay } from 'date-fns';
+import InteractiveChart from '../components/InteractiveChart';
+import { getColors, getReadableColor } from '../theme/colors';
 
 const screenWidth = Dimensions.get('window').width;
 
 export default function AnalyticsScreen() {
-    const { transactions, categories, isDarkMode } = useAppStore();
+    const { transactions, categories, isDarkMode, themeColor } = useAppStore();
     const [selectedMonth, setSelectedMonth] = useState(new Date());
-    const colors = getColors(isDarkMode);
+    const colors = getColors(isDarkMode, themeColor);
+    const readablePrimary = getReadableColor(colors.primary, isDarkMode);
 
-    const { categoryData, monthlyTrendData } = useMemo(() => {
+    const { categoryData, totalExpensesThisMonth, monthlyTrendData, dailyTrendData } = useMemo(() => {
         // 1. Category Pie Data for Selected Month (Expenses Only)
         const expensesThisMonth = transactions.filter(t => t.type === 'expense' && isSameMonth(parseISO(t.date), selectedMonth));
 
@@ -33,6 +35,8 @@ export default function AnalyticsScreen() {
             };
         }).sort((a, b) => b.y - a.y); // Sort by highest expense
 
+        const totalExpensesThisMonth = categoryData.reduce((sum, item) => sum + item.y, 0);
+
         // 2. Trend Line Data (Last 6 MonthsNet/Expenses)
         const trendData = [];
         for (let i = 5; i >= 0; i--) {
@@ -41,19 +45,39 @@ export default function AnalyticsScreen() {
 
             const totalExpense = txsInMonth.filter(t => t.type === 'expense').reduce((sum, tx) => sum + tx.amount, 0);
             trendData.push({
-                x: format(monthDate, 'MMM'),
-                y: totalExpense
+                label: format(monthDate, 'MMM'),
+                value: totalExpense,
+                fullDate: format(monthDate, 'MMMM yyyy')
             });
         }
 
-        return { categoryData, monthlyTrendData: trendData };
+        // 3. Daily Trend Data (Last 30 Days)
+        const dailyData = [];
+        for (let i = 29; i >= 0; i--) {
+            const dayDate = subDays(new Date(), i);
+            const txsInDay = transactions.filter(t => isSameDay(parseISO(t.date), dayDate));
+            const totalExpense = txsInDay.filter(t => t.type === 'expense').reduce((sum, tx) => sum + tx.amount, 0);
+
+            let label = '';
+            if (i === 29 || i === 0 || i === 15) {
+                label = format(dayDate, 'MMM d');
+            }
+
+            dailyData.push({
+                label,
+                value: totalExpense,
+                fullDate: format(dayDate, 'MMM do, yyyy')
+            });
+        }
+
+        return { categoryData, totalExpensesThisMonth, monthlyTrendData: trendData, dailyTrendData: dailyData };
     }, [transactions, categories, selectedMonth]);
 
     const topCategory = categoryData[0];
 
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-            <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+            <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
                 {/* Smart Insights */}
                 <View style={styles.insightsContainer}>
                     <Text style={[styles.sectionTitle, { color: colors.text }]}>Smart Insights</Text>
@@ -74,39 +98,52 @@ export default function AnalyticsScreen() {
                 <View style={[styles.chartContainer, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
                     <Text style={[styles.chartTitle, { color: colors.text }]}>Spending by Category</Text>
                     {categoryData.length > 0 ? (
-                        <VictoryPie
-                            data={categoryData}
-                            colorScale={categoryData.map(c => c.color)}
-                            width={screenWidth - 32}
-                            height={250}
-                            innerRadius={50}
-                            padAngle={2}
-                            style={{
-                                labels: { fill: colors.text, fontSize: 12, fontWeight: 'bold' }
-                            }}
-                        />
+                        <View style={{ width: '100%' }}>
+                            <VictoryPie
+                                data={categoryData}
+                                colorScale={categoryData.map(c => c.color)}
+                                width={screenWidth - 80}
+                                height={250}
+                                innerRadius={60}
+                                padAngle={2}
+                                labels={() => null} // Disable floating labels completely
+                            />
+
+                            {/* Legend Table */}
+                            <View style={styles.legendContainer}>
+                                {categoryData.map((item, index) => {
+                                    const percentage = ((item.y / totalExpensesThisMonth) * 100).toFixed(1);
+                                    return (
+                                        <View key={index} style={[styles.legendRow, { borderBottomColor: colors.border }]}>
+                                            <View style={styles.legendLabelGroup}>
+                                                <View style={[styles.colorDot, { backgroundColor: item.color }]} />
+                                                <Text style={[styles.legendText, { color: colors.text }]}>{item.x}</Text>
+                                            </View>
+                                            <View style={styles.legendValueGroup}>
+                                                <Text style={[styles.legendPercentage, { color: colors.subText }]}>{percentage}%</Text>
+                                                <Text style={[styles.legendAmount, { color: colors.text }]}>${item.y.toFixed(2)}</Text>
+                                            </View>
+                                        </View>
+                                    );
+                                })}
+                            </View>
+                        </View>
                     ) : (
                         <Text style={styles.noDataText}>No expenses this month</Text>
                     )}
                 </View>
 
                 {/* Trend Line Chart */}
-                <View style={[styles.chartContainer, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
-                    <Text style={[styles.chartTitle, { color: colors.text }]}>Expense Trend (6 Months)</Text>
-                    <VictoryChart width={screenWidth - 32} height={250} theme={VictoryTheme.material}>
-                        <VictoryAxis tickFormat={(t) => t} style={{ tickLabels: { fill: colors.text }, axis: { stroke: colors.text } }} />
-                        <VictoryAxis dependentAxis tickFormat={(x) => `$${x}`} style={{ tickLabels: { fill: colors.text }, axis: { stroke: colors.text } }} />
-                        <VictoryLine
-                            data={monthlyTrendData}
-                            style={{
-                                data: { stroke: colors.danger, strokeWidth: 3 },
-                            }}
-                            animate={{
-                                duration: 500,
-                                onLoad: { duration: 500 }
-                            }}
-                        />
-                    </VictoryChart>
+                <View style={[styles.chartContainer, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, paddingHorizontal: 0, paddingBottom: 16 }]}>
+                    <Text style={[styles.chartTitle, { color: colors.text, textAlign: 'center', marginBottom: 8 }]}>Expense Trend</Text>
+                    <InteractiveChart
+                        monthlyData={monthlyTrendData}
+                        dailyData={dailyTrendData}
+                        width={screenWidth - 34} // Account for borders
+                        height={250}
+                        color={readablePrimary}
+                        textColor={colors.subText}
+                    />
                 </View>
             </ScrollView>
         </SafeAreaView>
@@ -140,6 +177,20 @@ const styles = StyleSheet.create({
         shadowRadius: 16,
         elevation: 4,
     },
-    chartTitle: { fontSize: 18, fontWeight: '900', alignSelf: 'flex-start', marginBottom: 16 },
-    noDataText: { marginTop: 40, color: '#888', fontStyle: 'italic' }
+    chartTitle: { fontSize: 18, fontWeight: '900', alignSelf: 'center', marginBottom: 16 },
+    noDataText: { marginTop: 40, color: '#888', fontStyle: 'italic' },
+    legendContainer: { width: '100%', marginTop: 8 },
+    legendRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 12,
+        borderBottomWidth: StyleSheet.hairlineWidth
+    },
+    legendLabelGroup: { flexDirection: 'row', alignItems: 'center' },
+    colorDot: { width: 12, height: 12, borderRadius: 6, marginRight: 12 },
+    legendText: { fontSize: 15, fontWeight: '600' },
+    legendValueGroup: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+    legendPercentage: { fontSize: 14, fontWeight: '500', minWidth: 45, textAlign: 'right' },
+    legendAmount: { fontSize: 15, fontWeight: 'bold', minWidth: 70, textAlign: 'right' }
 });

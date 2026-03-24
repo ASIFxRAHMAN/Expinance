@@ -1,34 +1,39 @@
 import 'react-native-gesture-handler';
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, ActivityIndicator, AppState, TouchableOpacity, StyleSheet } from 'react-native';
-import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
+import { View, Text, ActivityIndicator, AppState, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
+import { NavigationContainer, DefaultTheme, DarkTheme, useNavigation } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import * as LocalAuthentication from 'expo-local-authentication';
 import * as Haptics from 'expo-haptics';
+import * as LocalAuthentication from 'expo-local-authentication';
 import { initializeDatabase, getDB } from './src/database/db';
 import { useAppStore } from './src/store/useAppStore';
-import { getColors } from './src/theme/colors';
+import { getColors, getContrastColor, getReadableColor } from './src/theme/colors';
 
 // Screens
 import HomeScreen from './src/screens/HomeScreen';
 import TransactionsScreen from './src/screens/TransactionsScreen';
 import AccountsScreen from './src/screens/AccountsScreen';
+import AccountDetailsScreen from './src/screens/AccountDetailsScreen';
 import AnalyticsScreen from './src/screens/AnalyticsScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import SubscriptionsScreen from './src/screens/SubscriptionsScreen';
 import AddTransactionScreen from './src/screens/AddTransactionScreen';
+import AppearanceScreen from './src/screens/AppearanceScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 function MainTabs() {
-  const { isDarkMode } = useAppStore();
-  const colors = getColors(isDarkMode);
+  const { isDarkMode, themeColor } = useAppStore();
+  const colors = getColors(isDarkMode, themeColor);
+  const readablePrimary = getReadableColor(colors.primary, isDarkMode);
   const insets = useSafeAreaInsets();
+  const { width } = Dimensions.get('window');
+  const navigation = useNavigation<any>();
 
   return (
     <Tab.Navigator
@@ -39,16 +44,27 @@ function MainTabs() {
         headerTitleStyle: { fontWeight: 'bold', fontSize: 24, color: colors.text },
         headerTintColor: colors.text,
         tabBarShowLabel: false,
-        tabBarActiveTintColor: colors.primary,
+        tabBarItemStyle: {
+          margin: 0,
+          padding: 0,
+          justifyContent: 'center',
+          alignItems: 'center',
+        },
+        tabBarIconStyle: {
+          flex: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+        },
+        tabBarActiveTintColor: readablePrimary,
         tabBarInactiveTintColor: colors.tabBarInactive,
         tabBarStyle: {
           position: 'absolute',
           bottom: Math.max(20, insets.bottom + 10),
-          left: 20,
-          right: 20,
+          left: 16,
+          right: 16,
           elevation: 0,
           backgroundColor: colors.card,
-          borderRadius: 24,
+          borderRadius: 32,
           height: 64,
           borderWidth: 1,
           borderColor: colors.border,
@@ -57,14 +73,20 @@ function MainTabs() {
           shadowOpacity: 0.15,
           shadowRadius: 20,
           paddingBottom: 0,
+          paddingTop: 0,
         },
         tabBarIcon: ({ focused, color, size }) => {
           let iconName: any = 'home';
           if (route.name === 'Home') iconName = focused ? 'home' : 'home-outline';
           else if (route.name === 'Accounts') iconName = focused ? 'wallet' : 'wallet-outline';
           else if (route.name === 'Analytics') iconName = focused ? 'pie-chart' : 'pie-chart-outline';
-          else if (route.name === 'Settings') iconName = focused ? 'settings' : 'settings-outline';
-          return <Ionicons name={iconName} size={28} color={color} />;
+          else if (route.name === 'Subscriptions') iconName = focused ? 'calendar' : 'calendar-outline';
+
+          return (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', height: '100%', width: '100%' }}>
+              <Ionicons name={iconName} size={28} color={color} />
+            </View>
+          );
         },
       })}
       screenListeners={{
@@ -73,37 +95,63 @@ function MainTabs() {
         },
       }}
     >
-      <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Dashboard' }} />
+      <Tab.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{
+          title: 'Dashboard',
+          headerRight: () => (
+            <TouchableOpacity onPress={() => navigation.navigate('Settings')} style={{ marginRight: 16 }}>
+              <Ionicons name="settings-outline" size={24} color={colors.text} />
+            </TouchableOpacity>
+          )
+        }}
+      />
       <Tab.Screen name="Accounts" component={AccountsScreen} />
+      <Tab.Screen name="Subscriptions" component={SubscriptionsScreen} />
       <Tab.Screen name="Analytics" component={AnalyticsScreen} />
-      <Tab.Screen name="Settings" component={SettingsScreen} />
-
-      {/* Hidden tabs, navigated to programmatically but not in Dock */}
-      <Tab.Screen name="Transactions" component={TransactionsScreen} options={{ tabBarItemStyle: { display: 'none' } }} />
-      <Tab.Screen name="Subscriptions" component={SubscriptionsScreen} options={{ tabBarItemStyle: { display: 'none' } }} />
     </Tab.Navigator>
   );
 }
 
+import CustomAlert from './src/components/CustomAlert';
+import PinOverlay from './src/components/PinOverlay';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 export default function App() {
   const [dbReady, setDbReady] = useState(false);
-  const [isLocked, setIsLocked] = useState(false);
-  const [appLockEnabled, setAppLockEnabled] = useState(false);
   const appState = useRef(AppState.currentState);
 
-  const { loadInitialData, isLoading, isDarkMode } = useAppStore();
+  const [isSettingInitialPin, setIsSettingInitialPin] = useState(false);
+  const [isConfirmingInitialPin, setIsConfirmingInitialPin] = useState(false);
+  const [tempPin, setTempPin] = useState('');
 
-  const handleAuth = async () => {
-    const result = await LocalAuthentication.authenticateAsync({
-      promptMessage: 'Authenticate to access Expinance',
-      fallbackLabel: 'Use PIN',
-      disableDeviceFallback: false,
-    });
-    if (result.success) {
-      setIsLocked(false);
-    }
+  const { 
+    loadInitialData, 
+    isLoading, 
+    isDarkMode, 
+    themeColor, 
+    securityPin,
+    isAppLocked,
+    appLockType,
+    isGlobalPinPromptVisible,
+    setSecurityPin,
+    unlockApp,
+    lockApp,
+    revealPrivacyMask,
+    showGlobalPinPrompt,
+    hideGlobalPinPrompt
+  } = useAppStore();
+
+  const handleBiometricAuth = async () => {
+      const result = await LocalAuthentication.authenticateAsync({
+          promptMessage: 'Authenticate to access Expinance',
+          disableDeviceFallback: false,
+          cancelLabel: 'Cancel'
+      });
+      if (result.success) {
+          unlockApp();
+      }
   };
 
   useEffect(() => {
@@ -111,16 +159,6 @@ export default function App() {
       try {
         await initializeDatabase();
         await loadInitialData();
-
-        // Check DB for App Lock
-        const db = await getDB();
-        const lockSetting = await db.getFirstAsync<{ value: string }>("SELECT value FROM settings WHERE key = 'app_lock'");
-        if (lockSetting && lockSetting.value === 'true') {
-          setAppLockEnabled(true);
-          setIsLocked(true); // Lock on startup
-          setTimeout(() => handleAuth(), 1000); // Wait 1s for layout to render
-        }
-
         setDbReady(true);
       } catch (error) {
         console.error('App init failed:', error);
@@ -129,12 +167,29 @@ export default function App() {
     initApp();
   }, []);
 
+  // Require PIN setup on first launch
+  useEffect(() => {
+    if (dbReady && !isLoading && securityPin === null && !isSettingInitialPin && !isConfirmingInitialPin) {
+      setIsSettingInitialPin(true);
+    }
+  }, [dbReady, isLoading, securityPin]);
+
+  useEffect(() => {
+      if (dbReady && !isLoading && isAppLocked && appLockType === 'biometric') {
+          handleBiometricAuth();
+      }
+  }, [dbReady, isLoading, isAppLocked, appLockType]);
+
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextAppState => {
       // Background -> Foreground AND Lock Enabled
-      if (appState.current.match(/inactive|background/) && nextAppState === 'active' && appLockEnabled) {
-        setIsLocked(true);
-        handleAuth();
+      if (appState.current === 'background' && nextAppState === 'active' && appLockType !== 'none') {
+        lockApp();
+        if (appLockType === 'biometric') {
+            handleBiometricAuth();
+        } else if (appLockType === 'pin') {
+            showGlobalPinPrompt();
+        }
       }
       appState.current = nextAppState;
     });
@@ -142,7 +197,7 @@ export default function App() {
     return () => {
       subscription.remove();
     };
-  }, [appLockEnabled]);
+  }, [appLockType]);
 
   if (!dbReady || isLoading) {
     return (
@@ -153,27 +208,113 @@ export default function App() {
     );
   }
 
-  if (isLocked) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF' }}>
-        <Ionicons name="lock-closed" size={64} color="#4682B4" />
-        <Text style={{ fontSize: 24, fontWeight: 'bold', marginVertical: 16 }}>Expinance Locked</Text>
-        <TouchableOpacity style={{ padding: 16, backgroundColor: '#4682B4', borderRadius: 8 }} onPress={handleAuth}>
-          <Text style={{ color: '#FFF', fontWeight: 'bold' }}>Unlock</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  const colors = getColors(isDarkMode, themeColor);
+  const contrastColor = getContrastColor(colors.primary);
 
-  const colors = getColors(isDarkMode);
+  const customTheme = isDarkMode ? {
+    ...DarkTheme,
+    colors: {
+      ...DarkTheme.colors,
+      background: colors.background, // Set base to our custom deep charcoal to prevent flashes
+    }
+  } : {
+    ...DefaultTheme,
+    colors: {
+      ...DefaultTheme.colors,
+      background: colors.background,
+    }
+  };
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar style="light" backgroundColor="transparent" translucent={true} />
-        <NavigationContainer theme={isDarkMode ? DarkTheme : DefaultTheme}>
+        <StatusBar style={isDarkMode ? "light" : "dark"} backgroundColor="transparent" translucent={true} />
+
+        {/* Mandatory Setup Flows */}
+        <PinOverlay
+            isVisible={isSettingInitialPin && securityPin === null}
+            title="Create Security PIN"
+            subtitle="Required to secure your financial data."
+            isDarkMode={isDarkMode}
+            themeColor={themeColor}
+            onSuccess={(pin) => {
+                setTempPin(pin);
+                setIsSettingInitialPin(false);
+                setIsConfirmingInitialPin(true);
+            }}
+        />
+        
+        <PinOverlay
+            isVisible={isConfirmingInitialPin && securityPin === null}
+            title="Confirm PIN"
+            subtitle="Please re-enter your new PIN."
+            isDarkMode={isDarkMode}
+            themeColor={themeColor}
+            onSuccess={(pin) => {
+                if (pin === tempPin) {
+                    setSecurityPin(pin);
+                    setIsConfirmingInitialPin(false);
+                } else {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                    setIsConfirmingInitialPin(false);
+                    setIsSettingInitialPin(true);
+                    setTempPin('');
+                }
+            }}
+            onCancel={() => {
+                setIsConfirmingInitialPin(false);
+                setIsSettingInitialPin(true);
+                setTempPin('');
+            }}
+        />
+
+        {/* Global App Lock Flow */}
+        <PinOverlay
+            isVisible={isGlobalPinPromptVisible && securityPin !== null}
+            title={isAppLocked && appLockType === 'pin' ? "App Locked" : "Privacy Verification"}
+            subtitle="Enter your PIN to unlock."
+            isDarkMode={isDarkMode}
+            themeColor={themeColor}
+            onSuccess={(pin) => {
+               if (isAppLocked) {
+                   if (unlockApp(pin)) {
+                       hideGlobalPinPrompt();
+                   } else {
+                       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                   }
+               } else {
+                   // This is a privacy prompt unlock
+                   if (pin === securityPin) {
+                       revealPrivacyMask(); // unlocks and starts 2s timer
+                       hideGlobalPinPrompt();
+                   } else {
+                       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                   }
+               }
+            }}
+            onCancel={(!isAppLocked) ? () => hideGlobalPinPrompt() : undefined}
+        />
+
+        {isAppLocked && appLockType === 'biometric' && (
+          <View style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background, zIndex: 999 }]}>
+            <Ionicons name="finger-print" size={80} color={colors.primary} />
+            <Text style={{ fontSize: 24, fontWeight: 'bold', marginVertical: 24, color: colors.text }}>Expinance Locked</Text>
+             <TouchableOpacity 
+               style={{ paddingHorizontal: 32, paddingVertical: 16, backgroundColor: colors.primary, borderRadius: 24 }} 
+               onPress={handleBiometricAuth}
+             >
+               <Text style={{ color: contrastColor, fontWeight: 'bold', fontSize: 18 }}>Unlock with Biometrics</Text>
+             </TouchableOpacity>
+          </View>
+        )}
+
+        <NavigationContainer theme={customTheme}>
           <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
             <Stack.Screen name="MainTabs" component={MainTabs} />
+            <Stack.Screen name="AccountDetails" component={AccountDetailsScreen} />
+            <Stack.Screen name="Transactions" component={TransactionsScreen} />
+            <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="Appearance" component={AppearanceScreen} />
             <Stack.Screen
               name="AddTransactionModal"
               component={AddTransactionScreen}
@@ -181,6 +322,7 @@ export default function App() {
             />
           </Stack.Navigator>
         </NavigationContainer>
+        <CustomAlert />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

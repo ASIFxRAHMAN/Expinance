@@ -44,3 +44,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+#Custom Security
+.idea/
+expinance_release_keys

@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   start_date TEXT NOT NULL,
   next_billing_date TEXT NOT NULL,
   reminder_days INTEGER DEFAULT 0,
+  tenure_days INTEGER DEFAULT 30,
+  is_recurring INTEGER DEFAULT 1,
   status TEXT CHECK(status IN ('active', 'paused')) NOT NULL DEFAULT 'active'
 );
 

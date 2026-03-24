@@ -9,13 +9,15 @@ export const SubscriptionRepository = {
         start_date: string,
         next_billing_date: string,
         reminder_days: number = 0,
+        tenure_days: number = 30,
+        is_recurring: number = 1,
         status: 'active' | 'paused' = 'active'
     ): Promise<number> => {
         const db = await getDB();
         const result = await db.runAsync(
-            `INSERT INTO subscriptions (name, amount, billing_cycle, start_date, next_billing_date, reminder_days, status) 
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [name, amount, billing_cycle, start_date, next_billing_date, reminder_days, status]
+            `INSERT INTO subscriptions (name, amount, billing_cycle, start_date, next_billing_date, reminder_days, tenure_days, is_recurring, status) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [name, amount, billing_cycle, start_date, next_billing_date, reminder_days, tenure_days, is_recurring, status]
         );
         return result.lastInsertRowId;
     },

@@ -1,12 +1,13 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Transaction, Category } from '../database/types';
 import { format, parseISO } from 'date-fns';
 import { useAppStore } from '../store/useAppStore';
-import { getColors } from '../theme/colors';
+import { getColors, getReadableColor } from '../theme/colors';
 import { Swipeable } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
+import { formatCurrency } from '../utils/format';
 
 interface TransactionItemProps {
     transaction: Transaction;
@@ -14,19 +15,33 @@ interface TransactionItemProps {
 }
 
 export default function TransactionItem({ transaction, category }: TransactionItemProps) {
-    const { isDarkMode, deleteTransaction } = useAppStore();
-    const themeColors = getColors(isDarkMode);
+    const { deleteTransaction, isDarkMode, themeColor, showAlert, isPrivacyEnabled, isPrivacyMaskRevealed, showGlobalPinPrompt } = useAppStore();
+    const themeColors = getColors(isDarkMode, themeColor);
+    const readablePrimary = getReadableColor(themeColors.primary, isDarkMode);
     const swipeableRef = useRef<Swipeable>(null);
+    const [isExpanded, setIsExpanded] = useState(false);
 
     const isIncome = transaction.type === 'income';
     const isTransfer = transaction.type === 'transfer';
 
-    const amountColor = isIncome ? themeColors.success : (isTransfer ? themeColors.primary : themeColors.danger);
+    const amountColor = readablePrimary;
     const iconName = category?.icon || (isIncome ? 'cash' : (isTransfer ? 'swap-horizontal' : 'cart'));
     const iconColor = category?.color || '#808080';
 
+    const isCensored = isPrivacyEnabled && !isPrivacyMaskRevealed;
+    const formattedAmount = formatCurrency(Math.abs(transaction.amount), !isExpanded, isPrivacyEnabled, isPrivacyMaskRevealed);
+    const sign = isCensored ? "" : (isIncome ? '+' : (isTransfer ? '' : '-'));
+
+    const handlePressAmount = () => {
+        if (isCensored) {
+            showGlobalPinPrompt();
+        } else {
+            setIsExpanded(!isExpanded);
+        }
+    };
+
     const handleDelete = () => {
-        Alert.alert(
+        showAlert(
             "Delete Transaction",
             "Are you sure you want to delete this transaction?",
             [
@@ -70,7 +85,7 @@ export default function TransactionItem({ transaction, category }: TransactionIt
             onSwipeableOpen={onSwipeOpen}
             overshootRight={false}
         >
-            <View style={[styles.container, { backgroundColor: themeColors.card, borderBottomColor: themeColors.border }]}>
+            <View style={[styles.container, { backgroundColor: themeColors.card, borderColor: themeColors.border }]}>
                 <View style={[styles.iconContainer, { backgroundColor: iconColor + '20' }]}>
                     <Ionicons name={iconName as any} size={24} color={iconColor} />
                 </View>
@@ -83,9 +98,11 @@ export default function TransactionItem({ transaction, category }: TransactionIt
                     </Text>
                 </View>
                 <View style={styles.amountContainer}>
-                    <Text style={[styles.amount, { color: amountColor }]}>
-                        {isIncome ? '+' : (isTransfer ? '' : '-')}${transaction.amount.toFixed(2)}
-                    </Text>
+                    <TouchableOpacity onPress={handlePressAmount} activeOpacity={0.7}>
+                        <Text style={[styles.amount, { color: amountColor }]} numberOfLines={isExpanded ? 2 : 1} adjustsFontSizeToFit>
+                            {sign}{formattedAmount}
+                        </Text>
+                    </TouchableOpacity>
                 </View>
             </View>
         </Swipeable>

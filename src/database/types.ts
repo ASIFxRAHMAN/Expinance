@@ -37,6 +37,8 @@ export interface Subscription {
     start_date: string;
     next_billing_date: string;
     reminder_days: number;
+    tenure_days: number;
+    is_recurring: number;
     status: 'active' | 'paused';
 }
 

@@ -5,16 +5,18 @@ import { useAppStore } from '../store/useAppStore';
 import SummaryCard from '../components/SummaryCard';
 import TransactionItem from '../components/TransactionItem';
 import FAB from '../components/FAB';
+import VoiceAssistantFAB from '../components/VoiceAssistantFAB';
 import { isSameDay, isSameWeek, isSameMonth, parseISO } from 'date-fns';
-import { getColors } from '../theme/colors';
+import { getColors, getReadableColor } from '../theme/colors';
 import { VictoryPie } from 'victory-native';
 
 type TimePeriod = 'Daily' | 'Weekly' | 'Monthly';
 
 export default function HomeScreen() {
-    const { transactions, categories, isDarkMode } = useAppStore();
+    const { transactions, categories, isDarkMode, themeColor } = useAppStore();
     const [period, setPeriod] = useState<TimePeriod>('Monthly');
-    const colors = getColors(isDarkMode);
+    const colors = getColors(isDarkMode, themeColor);
+    const readablePrimary = getReadableColor(colors.primary, isDarkMode);
 
     const { income, expense, net } = useMemo(() => {
         let inc = 0;
@@ -38,7 +40,7 @@ export default function HomeScreen() {
         return { income: inc, expense: exp, net: inc - exp };
     }, [transactions, period]);
 
-    const recentTransactions = useMemo(() => transactions.slice(0, 10), [transactions]);
+    const allTransactions = useMemo(() => transactions, [transactions]);
 
     const renderHeader = () => (
         <View style={styles.headerContainer}>
@@ -71,7 +73,7 @@ export default function HomeScreen() {
                 <View pointerEvents="none" style={styles.ringChart}>
                     <VictoryPie
                         data={[{ x: 'Spent', y: expense }, { x: 'Remaining', y: Math.max(0, income - expense) }]}
-                        colorScale={[colors.primary, colors.cardAlt]}
+                        colorScale={[readablePrimary, colors.cardAlt]}
                         innerRadius={25}
                         radius={35}
                         width={80}
@@ -82,14 +84,14 @@ export default function HomeScreen() {
                 </View>
             </View>
 
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Recent Transactions</Text>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Transactions</Text>
         </View>
     );
 
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
             <FlatList
-                data={recentTransactions}
+                data={allTransactions}
                 keyExtractor={item => item.id.toString()}
                 renderItem={({ item }) => {
                     const category = categories.find(c => c.id === item.category_id);
@@ -99,11 +101,12 @@ export default function HomeScreen() {
                 contentContainerStyle={{ paddingBottom: 160 }}
                 ListEmptyComponent={
                     <View style={styles.emptyContainer}>
-                        <Text style={[styles.emptyText, { color: colors.text }]}>No recent transactions.</Text>
+                        <Text style={[styles.emptyText, { color: colors.text }]}>No transactions yet.</Text>
                         <Text style={[styles.emptySubText, { color: colors.subText }]}>Tap the + button to add one.</Text>
                     </View>
                 }
             />
+            <VoiceAssistantFAB />
             <FAB />
         </SafeAreaView>
     );

@@ -1,53 +1,61 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Switch, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Switch, TouchableOpacity, Alert, ScrollView, TextInput, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import * as Haptics from 'expo-haptics';
 import * as LocalAuthentication from 'expo-local-authentication';
+import { useNavigation } from '@react-navigation/native';
 import { useAppStore } from '../store/useAppStore';
-import { getDB } from '../database/db';
-import { getColors } from '../theme/colors';
+import { getColors, getReadableColor, getContrastColor } from '../theme/colors';
+import PinOverlay from '../components/PinOverlay';
 
 export default function SettingsScreen() {
-    const { transactions, accounts, categories, isDarkMode, setDarkMode } = useAppStore();
+    const navigation = useNavigation<any>();
+    const { 
+        transactions, 
+        accounts, 
+        categories, 
+        isDarkMode, 
+        themeColor, 
+        isPrivacyEnabled, 
+        setPrivacyEnabled,
+        privacyRevealDuration,
+        setPrivacyRevealDuration,
+        appLockType, 
+        setAppLockType,
+        securityPin,
+        setSecurityPin,
+        geminiApiKey,
+        setGeminiApiKey
+    } = useAppStore();
 
-    const [isAppLockEnabled, setIsAppLockEnabled] = useState(false);
+    const [isEnteringOldPin, setIsEnteringOldPin] = useState(false);
+    const [isSettingNewPin, setIsSettingNewPin] = useState(false);
+    const [isConfirmingNewPin, setIsConfirmingNewPin] = useState(false);
+    const [tempPin, setTempPin] = useState('');
     const [hasBiometrics, setHasBiometrics] = useState(false);
+    const [isGeminiModalVisible, setGeminiModalVisible] = useState(false);
+    const [tempGeminiKey, setTempGeminiKey] = useState('');
 
     useEffect(() => {
         (async () => {
             const compatible = await LocalAuthentication.hasHardwareAsync();
             const enrolled = await LocalAuthentication.isEnrolledAsync();
             setHasBiometrics(compatible && enrolled);
-
-            try {
-                const db = await getDB();
-                const lockSetting = await db.getFirstAsync<{ value: string }>("SELECT value FROM settings WHERE key = 'app_lock'");
-                if (lockSetting && lockSetting.value === 'true') {
-                    setIsAppLockEnabled(true);
-                }
-            } catch (e) {
-                // Settings table might be missing the key, default to false
-                console.log('App Lock setting not found or uninitialized');
-            }
         })();
     }, []);
 
-    const toggleAppLock = async (value: boolean) => {
-        if (value && hasBiometrics) {
-            const result = await LocalAuthentication.authenticateAsync({
-                promptMessage: 'Authenticate to enable App Lock',
-            });
-            if (!result.success) return;
-        } else if (value && !hasBiometrics) {
-            Alert.alert('Unavailable', 'Device does not support biometric auth or none is enrolled.');
-            return;
-        }
+    const togglePrivacyMode = (value: boolean) => {
+        setPrivacyEnabled(value);
+    };
 
-        setIsAppLockEnabled(value);
-        const db = await getDB();
-        await db.runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', ['app_lock', value ? 'true' : 'false']);
+    const adjustDuration = (delta: number) => {
+        let newVal = privacyRevealDuration + delta;
+        if (newVal < 1) newVal = 1;
+        if (newVal > 60) newVal = 60;
+        setPrivacyRevealDuration(newVal);
     };
 
     const exportCSV = async () => {
@@ -100,7 +108,9 @@ export default function SettingsScreen() {
         }
     };
 
-    const colors = getColors(isDarkMode);
+    const colors = getColors(isDarkMode, themeColor);
+    const contrastColor = getContrastColor(colors.primary);
+    const readablePrimary = getReadableColor(colors.primary, isDarkMode);
 
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -121,29 +131,108 @@ export default function SettingsScreen() {
                 </View>
 
                 <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
-                    <Text style={[styles.sectionTitle, { color: colors.primary }]}>Preferences</Text>
-
-                    <View style={styles.row}>
+                    <Text style={[styles.sectionTitle, { color: readablePrimary }]}>Appearance</Text>
+                    <TouchableOpacity style={styles.actionRow} onPress={() => navigation.navigate('Appearance')}>
                         <View style={styles.rowLeft}>
-                            <Ionicons name="finger-print" size={24} color={colors.primary} />
-                            <View>
-                                <Text style={[styles.rowText, { color: colors.text }]}>Biometric App Lock</Text>
-                                <Text style={[styles.subText, { color: colors.subText }]}>Require fingerprint/face on open</Text>
-                            </View>
+                            <Ionicons name="color-palette-outline" size={24} color={colors.text} />
+                            <Text style={[styles.actionText, { color: colors.text }]}>App Appearance</Text>
                         </View>
-                        <Switch
-                            value={isAppLockEnabled}
-                            onValueChange={toggleAppLock}
-                            trackColor={{ true: colors.primary, false: colors.border }}
-                            disabled={!hasBiometrics}
-                        />
-                    </View>
+                        <Ionicons name="chevron-forward" size={20} color={colors.subText} />
+                    </TouchableOpacity>
                 </View>
 
                 <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
-                    <Text style={[styles.sectionTitle, { color: colors.primary }]}>Data Management</Text>
+                    <Text style={[styles.sectionTitle, { color: readablePrimary }]}>Security & Privacy</Text>
 
-                    <TouchableOpacity style={[styles.actionRow, { borderBottomColor: colors.border }]} onPress={exportCSV}>
+                    <View style={styles.row}>
+                        <View style={styles.rowLeft}>
+                            <Ionicons name="eye-off-outline" size={24} color={readablePrimary} />
+                            <View>
+                                <Text style={[styles.rowText, { color: colors.text }]}>Privacy Mode</Text>
+                                <Text style={[styles.subText, { color: colors.subText }]}>Hide sensitive values (***)</Text>
+                            </View>
+                        </View>
+                        <Switch
+                            value={isPrivacyEnabled}
+                            onValueChange={togglePrivacyMode}
+                            trackColor={{ true: readablePrimary, false: colors.border }}
+                        />
+                    </View>
+
+                    {isPrivacyEnabled && (
+                        <View style={styles.row}>
+                            <View style={styles.rowLeft}>
+                                <Ionicons name="timer-outline" size={24} color={readablePrimary} />
+                                <View>
+                                    <Text style={[styles.rowText, { color: colors.text }]}>Reveal Duration</Text>
+                                    <Text style={[styles.subText, { color: colors.subText }]}>How long numbers stay visible</Text>
+                                </View>
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.background, borderRadius: 16, padding: 4 }}>
+                                <TouchableOpacity onPress={() => adjustDuration(-1)} style={{ padding: 8, backgroundColor: colors.card, borderRadius: 12 }}>
+                                    <Ionicons name="remove" size={16} color={colors.text} />
+                                </TouchableOpacity>
+                                <Text style={{ width: 40, textAlign: 'center', fontWeight: 'bold', color: colors.text }}>{privacyRevealDuration}s</Text>
+                                <TouchableOpacity onPress={() => adjustDuration(1)} style={{ padding: 8, backgroundColor: colors.card, borderRadius: 12 }}>
+                                    <Ionicons name="add" size={16} color={colors.text} />
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    )}
+
+                    <View style={styles.row}>
+                        <View style={styles.rowLeft}>
+                            <Ionicons name="lock-closed-outline" size={24} color={readablePrimary} />
+                            <View>
+                                <Text style={[styles.rowText, { color: colors.text }]}>App Lock (PIN)</Text>
+                                <Text style={[styles.subText, { color: colors.subText }]}>Require PIN on startup</Text>
+                            </View>
+                        </View>
+                        <Switch
+                            value={appLockType === 'pin'}
+                            onValueChange={(val) => setAppLockType(val ? 'pin' : 'none')}
+                            trackColor={{ true: readablePrimary, false: colors.border }}
+                        />
+                    </View>
+
+                    <View style={styles.row}>
+                        <View style={styles.rowLeft}>
+                            <Ionicons name="finger-print" size={24} color={readablePrimary} />
+                            <View>
+                                <Text style={[styles.rowText, { color: colors.text }]}>App Lock (Biometrics)</Text>
+                                <Text style={[styles.subText, { color: colors.subText }]}>Require Fingerprint/Face ID</Text>
+                            </View>
+                        </View>
+                        <Switch
+                            value={appLockType === 'biometric'}
+                            onValueChange={(val) => {
+                                if (val) {
+                                    if (hasBiometrics) {
+                                        setAppLockType('biometric');
+                                    } else {
+                                        Alert.alert('Unavailable', 'Biometrics not enrolled on device.');
+                                    }
+                                } else {
+                                    setAppLockType('none');
+                                }
+                            }}
+                            trackColor={{ true: readablePrimary, false: colors.border }}
+                        />
+                    </View>
+
+                    <TouchableOpacity style={styles.actionRow} onPress={() => setIsEnteringOldPin(true)}>
+                        <View style={styles.rowLeft}>
+                            <Ionicons name="keypad-outline" size={24} color={colors.text} />
+                            <Text style={[styles.actionText, { color: colors.text }]}>Change PIN</Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color={colors.subText} />
+                    </TouchableOpacity>
+                </View>
+
+                <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+                    <Text style={[styles.sectionTitle, { color: readablePrimary }]}>Data Management</Text>
+
+                    <TouchableOpacity style={styles.actionRow} onPress={exportCSV}>
                         <View style={styles.rowLeft}>
                             <Ionicons name="document-text-outline" size={24} color={colors.text} />
                             <Text style={[styles.actionText, { color: colors.text }]}>Export to CSV</Text>
@@ -151,7 +240,7 @@ export default function SettingsScreen() {
                         <Ionicons name="chevron-forward" size={20} color={colors.subText} />
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={[styles.actionRow, { borderBottomColor: colors.border }]} onPress={exportJSON}>
+                    <TouchableOpacity style={styles.actionRow} onPress={exportJSON}>
                         <View style={styles.rowLeft}>
                             <Ionicons name="cloud-download-outline" size={24} color={colors.text} />
                             <Text style={[styles.actionText, { color: colors.text }]}>Backup JSON</Text>
@@ -168,10 +257,126 @@ export default function SettingsScreen() {
                     </TouchableOpacity>
                 </View>
 
+                <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+                    <Text style={[styles.sectionTitle, { color: readablePrimary }]}>Developer & AI Settings</Text>
+
+                    <View style={styles.row}>
+                        <View style={[styles.rowLeft, { flex: 1 }]}>
+                            <Ionicons name="sparkles" size={24} color={readablePrimary} />
+                            <View style={{ flex: 1, paddingRight: 10 }}>
+                                <Text style={[styles.rowText, { color: colors.text }]}>Gemini Base64 Vision</Text>
+                                <Text style={[styles.subText, { color: colors.subText }]}>{geminiApiKey ? 'API Key Configured • Ready' : 'Personal API Key Required'}</Text>
+                            </View>
+                        </View>
+                        <TouchableOpacity style={[styles.miniBtn, { backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border }]} onPress={() => { setTempGeminiKey(geminiApiKey || ''); setGeminiModalVisible(true); }}>
+                            <Text style={{ color: colors.text, fontSize: 12, fontWeight: 'bold' }}>{geminiApiKey ? 'G-***' : 'Set Key'}</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
                 <View style={{ alignItems: 'center', marginVertical: 32 }}>
                     <Text style={{ color: colors.subText, fontSize: 12, fontWeight: '300' }}>Expinance Redesign v2.0 • The Frictionless Flow</Text>
                 </View>
             </ScrollView>
+
+            {/* AI Developer Modal Sequences */}
+            <Modal visible={isGeminiModalVisible} animationType="fade" transparent={true}>
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                        <Text style={[styles.modalTitle, { color: colors.text }]}>Gemini Flash API Key</Text>
+                        <Text style={[styles.modalSubtitle, { color: colors.subText }]}>
+                            Expinance is completely offline. To enable Receipt AI, punch in a free Google Studio key. This never leaves your device's SQLite store.
+                        </Text>
+                        <TextInput
+                            style={[styles.modalInput, { backgroundColor: colors.background, color: colors.text, borderColor: colors.border }]}
+                            placeholder="AIzaSy..."
+                            placeholderTextColor={colors.subText}
+                            value={tempGeminiKey}
+                            onChangeText={setTempGeminiKey}
+                            autoCapitalize="none"
+                            secureTextEntry
+                        />
+                        <View style={styles.modalActions}>
+                            <TouchableOpacity style={[styles.modalBtn, { backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border }]} onPress={() => setGeminiModalVisible(false)}>
+                                <Text style={{ color: colors.text, fontWeight: 'bold' }}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity 
+                                style={[styles.modalBtn, { backgroundColor: colors.primary }]} 
+                                onPress={() => {
+                                    setGeminiApiKey(tempGeminiKey.trim() || null);
+                                    setGeminiModalVisible(false);
+                                }}
+                            >
+                                <Text style={{ color: contrastColor, fontWeight: 'bold' }}>Save Key</Text>
+                            </TouchableOpacity>
+                        </View>
+                        {geminiApiKey && (
+                            <TouchableOpacity style={{ marginTop: 20 }} onPress={() => { setGeminiApiKey(null); setGeminiModalVisible(false); }}>
+                                <Text style={{ color: colors.danger, fontWeight: 'bold' }}>Delete Key From Device</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Modal Sequences for Resetting PIN */}
+            <PinOverlay
+                isVisible={isEnteringOldPin}
+                title="Verify Current PIN"
+                subtitle="Enter your current PIN to continue."
+                isDarkMode={isDarkMode}
+                themeColor={themeColor}
+                onSuccess={(pin) => {
+                    if (pin === securityPin) {
+                        setIsEnteringOldPin(false);
+                        setIsSettingNewPin(true);
+                    } else {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                    }
+                }}
+                onCancel={() => setIsEnteringOldPin(false)}
+            />
+
+            <PinOverlay
+                isVisible={isSettingNewPin}
+                title="Create New PIN"
+                subtitle="Enter your new 6-digit security PIN."
+                isDarkMode={isDarkMode}
+                themeColor={themeColor}
+                onSuccess={(pin) => {
+                    setTempPin(pin);
+                    setIsSettingNewPin(false);
+                    setIsConfirmingNewPin(true);
+                }}
+                onCancel={() => {
+                    setIsSettingNewPin(false);
+                    setTempPin('');
+                }}
+            />
+
+            <PinOverlay
+                isVisible={isConfirmingNewPin}
+                title="Confirm New PIN"
+                subtitle="Please re-enter your new PIN."
+                isDarkMode={isDarkMode}
+                themeColor={themeColor}
+                onSuccess={(pin) => {
+                    if (pin === tempPin) {
+                        setSecurityPin(pin);
+                        setIsConfirmingNewPin(false);
+                        Alert.alert("Success", "Your security PIN has been updated.");
+                    } else {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                        setIsConfirmingNewPin(false);
+                        setIsSettingNewPin(true);
+                        setTempPin('');
+                    }
+                }}
+                onCancel={() => {
+                    setIsConfirmingNewPin(false);
+                    setTempPin('');
+                }}
+            />
         </SafeAreaView>
     );
 }
@@ -214,8 +419,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         gap: 8,
         paddingTop: 12,
-        borderTopWidth: StyleSheet.hairlineWidth,
-        borderTopColor: '#333', // Subtle separator
     },
     syncText: {
         fontSize: 12,
@@ -226,7 +429,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingVertical: 12,
-        borderBottomWidth: StyleSheet.hairlineWidth,
     },
     rowLeft: {
         flexDirection: 'row',
@@ -240,7 +442,14 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingVertical: 16,
-        borderBottomWidth: StyleSheet.hairlineWidth,
     },
-    actionText: { fontSize: 16, fontWeight: 'bold' }
+    actionText: { fontSize: 16, fontWeight: 'bold' },
+    miniBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 },
+    modalContent: { padding: 24, borderRadius: 24, borderWidth: 1, alignItems: 'center' },
+    modalTitle: { fontSize: 20, fontWeight: '900', marginBottom: 8 },
+    modalSubtitle: { fontSize: 13, textAlign: 'center', marginBottom: 20, fontWeight: '300', lineHeight: 20 },
+    modalInput: { width: '100%', borderWidth: 1, borderRadius: 12, padding: 16, fontSize: 16, marginBottom: 24, fontWeight: '700' },
+    modalActions: { flexDirection: 'row', gap: 12 },
+    modalBtn: { flex: 1, padding: 16, borderRadius: 16, alignItems: 'center', justifyContent: 'center' }
 });

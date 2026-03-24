@@ -1,7 +1,8 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useAppStore } from '../store/useAppStore';
-import { getColors } from '../theme/colors';
+import { getColors, getReadableColor } from '../theme/colors';
+import { formatCurrency } from '../utils/format';
 
 interface SummaryCardProps {
     label: string;
@@ -10,18 +11,33 @@ interface SummaryCardProps {
 }
 
 export default function SummaryCard({ label, amount, type }: SummaryCardProps) {
-    const { isDarkMode } = useAppStore();
-    const themeColors = getColors(isDarkMode);
+    const { isDarkMode, themeColor, isPrivacyEnabled, isPrivacyMaskRevealed, showGlobalPinPrompt } = useAppStore();
+    const themeColors = getColors(isDarkMode, themeColor);
+    const [isExpanded, setIsExpanded] = useState(false);
 
     const isPositive = amount >= 0;
-    const color = type === 'neutral' ? themeColors.primary : (type === 'positive' ? themeColors.success : themeColors.danger);
+    const color = getReadableColor(themeColors.primary, isDarkMode);
+
+    const isCensored = isPrivacyEnabled && !isPrivacyMaskRevealed;
+    const formattedAmount = formatCurrency(Math.abs(amount), !isExpanded, isPrivacyEnabled, isPrivacyMaskRevealed);
+    const sign = amount < 0 && !isCensored ? '-' : '';
+
+    const handlePress = () => {
+        if (isCensored) {
+            showGlobalPinPrompt();
+        } else {
+            setIsExpanded(!isExpanded);
+        }
+    };
 
     return (
         <View style={[styles.card, { backgroundColor: themeColors.card, borderColor: themeColors.border }]}>
             <Text style={[styles.label, { color: themeColors.subText }]}>{label}</Text>
-            <Text style={[styles.amount, { color }]}>
-                {amount < 0 ? '-' : ''}${Math.abs(amount).toFixed(2)}
-            </Text>
+            <TouchableOpacity onPress={handlePress} activeOpacity={0.7}>
+                <Text style={[styles.amount, { color }]} numberOfLines={isExpanded ? 2 : 1} adjustsFontSizeToFit>
+                    {sign}{formattedAmount}
+                </Text>
+            </TouchableOpacity>
         </View>
     );
 }

@@ -4,12 +4,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppStore } from '../store/useAppStore';
 import TransactionItem from '../components/TransactionItem';
 import FAB from '../components/FAB';
+import VoiceAssistantFAB from '../components/VoiceAssistantFAB';
 import { getColors } from '../theme/colors';
 
 export default function TransactionsScreen() {
-    const { transactions, categories, deleteTransaction, isDarkMode } = useAppStore();
+    const { transactions, categories, deleteTransaction, isDarkMode, showAlert, themeColor } = useAppStore();
     const [filterType, setFilterType] = useState<'all' | 'income' | 'expense' | 'transfer'>('all');
-    const colors = getColors(isDarkMode);
+    const colors = getColors(isDarkMode, themeColor);
 
     const filteredTransactions = useMemo(() => {
         if (filterType === 'all') return transactions;
@@ -17,7 +18,7 @@ export default function TransactionsScreen() {
     }, [transactions, filterType]);
 
     const confirmDelete = (id: number) => {
-        Alert.alert(
+        showAlert(
             'Delete Transaction',
             'Are you sure you want to delete this transaction?',
             [
@@ -61,6 +62,7 @@ export default function TransactionsScreen() {
                     <Text style={[styles.emptyText, { color: colors.subText }]}>No transactions found for this filter.</Text>
                 }
             />
+            <VoiceAssistantFAB />
             <FAB />
         </SafeAreaView>
     );

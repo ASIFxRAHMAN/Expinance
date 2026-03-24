@@ -1,20 +1,37 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAppStore } from '../store/useAppStore';
 import { Ionicons } from '@expo/vector-icons';
 import { Account, Transaction } from '../database/types';
-import { getColors } from '../theme/colors';
+import { getColors, getContrastColor, getReadableColor } from '../theme/colors';
 import { VictoryLine } from 'victory-native';
 import { subDays, parseISO, isAfter } from 'date-fns';
 
 export default function AccountsScreen() {
-    const { accounts, transactions, addAccount, deleteAccount, isDarkMode } = useAppStore();
-    const colors = getColors(isDarkMode);
+    const { accounts, transactions, addAccount, deleteAccount, isDarkMode, themeColor, showAlert } = useAppStore();
+    const navigation = useNavigation<NativeStackNavigationProp<any>>();
+    const route = useRoute<any>();
+    const colors = getColors(isDarkMode, themeColor);
+    const contrastColor = getContrastColor(colors.primary);
+    const readablePrimary = getReadableColor(colors.primary, isDarkMode);
     const [isAdding, setIsAdding] = useState(false);
     const [newAccountName, setNewAccountName] = useState('');
     const [newAccountType, setNewAccountType] = useState<'cash' | 'bank' | 'wallet' | 'custom'>('bank');
     const [newAccountBalance, setNewAccountBalance] = useState('');
+
+    useEffect(() => {
+        if (route.params?.intentData) {
+            const intent = route.params.intentData;
+            if (intent.action === 'ADD_ACCOUNT') {
+                setIsAdding(true);
+                if (intent.title) setNewAccountName(intent.title);
+                if (intent.amount !== undefined) setNewAccountBalance(intent.amount.toString());
+            }
+        }
+    }, [route.params?.intentData]);
 
     const accountTrendData = useMemo(() => {
         const trends: Record<number, { x: number, y: number }[]> = {};
@@ -55,7 +72,7 @@ export default function AccountsScreen() {
 
     const handleAddAccount = async () => {
         if (!newAccountName || isNaN(Number(newAccountBalance))) {
-            Alert.alert('Invalid Input', 'Please enter a valid name and initial balance.');
+            showAlert('Invalid Input', 'Please enter a valid name and initial balance.', [{ text: 'OK', style: 'default' }]);
             return;
         }
         try {
@@ -64,12 +81,12 @@ export default function AccountsScreen() {
             setNewAccountName('');
             setNewAccountBalance('');
         } catch (error: any) {
-            Alert.alert('Database Error', error.message || 'Failed to create account.');
+            showAlert('Database Error', error.message || 'Failed to create account.', [{ text: 'OK', style: 'default' }]);
         }
     };
 
     const confirmDelete = (id: number, name: string) => {
-        Alert.alert(
+        showAlert(
             'Delete Account',
             `Are you sure you want to delete ${name}? This will remove associated transactions!`,
             [
@@ -80,10 +97,14 @@ export default function AccountsScreen() {
     };
 
     const renderAccount = ({ item }: { item: Account }) => (
-        <View style={[styles.accountCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}>
+        <TouchableOpacity
+            style={[styles.accountCard, { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1 }]}
+            onPress={() => navigation.navigate('AccountDetails', { accountId: item.id })}
+            activeOpacity={0.7}
+        >
             <View style={styles.accountInfo}>
                 <View style={[styles.iconWrapper, { backgroundColor: colors.cardAlt }]}>
-                    <Ionicons name={item.type === 'cash' ? 'cash' : (item.type === 'wallet' ? 'wallet' : 'card')} size={24} color={colors.primary} />
+                    <Ionicons name={item.type === 'cash' ? 'cash' : (item.type === 'wallet' ? 'wallet' : 'card')} size={24} color={readablePrimary} />
                 </View>
                 <View>
                     <Text style={[styles.accountName, { color: colors.text }]}>{item.name}</Text>
@@ -94,7 +115,7 @@ export default function AccountsScreen() {
                 {accountTrendData[item.id] && (
                     <VictoryLine
                         data={accountTrendData[item.id]}
-                        style={{ data: { stroke: colors.primary, strokeWidth: 2 } }}
+                        style={{ data: { stroke: readablePrimary, strokeWidth: 2 } }}
                         width={60}
                         height={40}
                         padding={0}
@@ -106,11 +127,17 @@ export default function AccountsScreen() {
                 <Text style={[styles.accountBalance, item.balance < 0 ? { color: colors.danger } : { color: colors.text }]}>
                     ${item.balance.toFixed(2)}
                 </Text>
-                <TouchableOpacity style={styles.deleteButton} onPress={() => confirmDelete(item.id, item.name)}>
+                <TouchableOpacity
+                    style={styles.deleteButton}
+                    onPress={(e) => {
+                        e.stopPropagation();
+                        confirmDelete(item.id, item.name);
+                    }}
+                >
                     <Ionicons name="trash-outline" size={20} color={colors.danger} />
                 </TouchableOpacity>
             </View>
-        </View>
+        </TouchableOpacity>
     );
 
     return (
@@ -129,10 +156,10 @@ export default function AccountsScreen() {
                         {['cash', 'bank', 'wallet', 'custom'].map((t) => (
                             <TouchableOpacity
                                 key={t}
-                                style={[styles.typeBtn, { backgroundColor: colors.border }, newAccountType === t && { backgroundColor: colors.primary }]}
+                                style={[styles.typeBtn, { backgroundColor: colors.border }, newAccountType === t && { backgroundColor: readablePrimary }]}
                                 onPress={() => setNewAccountType(t as any)}
                             >
-                                <Text style={[styles.typeBtnText, { color: colors.subText }, newAccountType === t && { color: '#FFF' }]}>
+                                <Text style={[styles.typeBtnText, { color: colors.subText }, newAccountType === t && { color: getContrastColor(readablePrimary) }]}>
                                     {t.toUpperCase()}
                                 </Text>
                             </TouchableOpacity>
@@ -151,7 +178,7 @@ export default function AccountsScreen() {
                             <Text style={[styles.cancelBtnText, { color: colors.subText }]}>Cancel</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: colors.primary }]} onPress={handleAddAccount}>
-                            <Text style={styles.saveBtnText}>Save</Text>
+                            <Text style={[styles.saveBtnText, { color: contrastColor }]}>Save</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -167,8 +194,8 @@ export default function AccountsScreen() {
                         }
                     />
                     <TouchableOpacity style={[styles.addButton, { backgroundColor: colors.primary, shadowColor: colors.primary }]} onPress={() => setIsAdding(true)}>
-                        <Ionicons name="add" size={24} color="#FFF" />
-                        <Text style={styles.addButtonText}>Add Account</Text>
+                        <Ionicons name="add" size={24} color={contrastColor} />
+                        <Text style={[styles.addButtonText, { color: contrastColor }]}>Add Account</Text>
                     </TouchableOpacity>
                 </>
             )}
