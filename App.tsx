@@ -1,3 +1,4 @@
+import * as SplashScreen from "expo-splash-screen";
 import 'react-native-gesture-handler';
 import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, ActivityIndicator, AppState, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
@@ -12,6 +13,14 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import { initializeDatabase, getDB } from './src/database/db';
 import { useAppStore } from './src/store/useAppStore';
 import { getColors, getContrastColor, getReadableColor } from './src/theme/colors';
+
+// Kepp the splash screen visible while we fetch resources
+SplashScreen.preventAutoHideAsync();
+
+SplashScreen.setOptions({
+  duration: 400,
+  fade: true,
+});
 
 // Screens
 import HomeScreen from './src/screens/HomeScreen';
@@ -198,6 +207,12 @@ export default function App() {
       subscription.remove();
     };
   }, [appLockType]);
+
+  useEffect(() => {
+    if (dbReady && !isLoading) {
+      SplashScreen.hideAsync().catch(console.warn);
+    }
+  }, [dbReady, isLoading]);
 
   if (!dbReady || isLoading) {
     return (

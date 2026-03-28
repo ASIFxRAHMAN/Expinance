@@ -18,10 +18,9 @@
     "android": {
       "permissions": ["RECORD_AUDIO"],
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#ffffff",
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "monochromeImage": "./assets/adaptive-icon.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.mdasifxrahman.Expinance"
@@ -34,6 +33,19 @@
         "expo-av",
         {
           "microphonePermission": "Allow Expinance to access your microphone for voice commands."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon-dark.png",
+	  "imageWidth": 200,
+	  "resizeMode": "contain",
+	  "backgroundColor": "#ffffff",
+	  "dark": {
+	    "image": "./assets/splash-icon-light.png",
+	    "backgroundColor": "#000000"
+	  }
         }
       ],
       "expo-sqlite",
